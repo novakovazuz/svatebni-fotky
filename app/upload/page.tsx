@@ -30,53 +30,56 @@ export default function UploadPage() {
     return (total / 1024 / 1024).toFixed(1);
   }, [files]);
 
-  function handleUpload() {
-    if (files.length === 0 || isUploading) return;
+  async function handleUpload() {
+  if (files.length === 0 || isUploading) return;
 
-    setIsUploading(true);
-    setStatus("");
-    setUploadProgress(0);
+  setIsUploading(true);
+  setStatus("");
+  setUploadProgress(0);
 
-    const formData = new FormData();
+  try {
+    let uploaded = 0;
 
-    files.forEach((file) => {
-      formData.append("files", file);
-    });
+    for (let i = 0; i < files.length; i++) {
+      const formData = new FormData();
+      formData.append("files", files[i]);
 
-    const xhr = new XMLHttpRequest();
+      const response = await fetch("/api/upload", {
+        method: "POST",
+        body: formData,
+      });
 
-    xhr.upload.onprogress = (event) => {
-      if (event.lengthComputable) {
-        const percent = Math.round((event.loaded / event.total) * 100);
-        setUploadProgress(percent);
-      }
-    };
+      const text = await response.text();
 
-    xhr.onload = () => {
+      let data;
       try {
-        const data = JSON.parse(xhr.responseText);
-
-        if (xhr.status < 200 || xhr.status >= 300) {
-          throw new Error(data.error || "Nahrávání selhalo.");
-        }
-
-        setUploadProgress(100);
-
-        setTimeout(() => {
-          setFiles([]);
-          setStatus("");
-          setIsSuccess(true);
-          setIsUploading(false);
-        }, 500);
-      } catch (error) {
-        setStatus(
-          error instanceof Error
-            ? `Chyba: ${error.message}`
-            : "Něco se nepovedlo."
-        );
-        setIsUploading(false);
+        data = JSON.parse(text);
+      } catch {
+        console.log("SERVER RESPONSE:", text);
+        throw new Error("Server nevrátil platnou odpověď.");
       }
-    };
+
+      if (!response.ok) {
+        throw new Error(data.error || "Nahrávání selhalo.");
+      }
+
+      uploaded++;
+      setUploadProgress(Math.round((uploaded / files.length) * 100));
+    }
+
+    setFiles([]);
+    setStatus("");
+    setIsSuccess(true);
+  } catch (error) {
+    setStatus(
+      error instanceof Error
+        ? `Chyba: ${error.message}`
+        : "Něco se nepovedlo."
+    );
+  } finally {
+    setIsUploading(false);
+  }
+}
 
     xhr.onerror = () => {
       setStatus("Chyba: Nepodařilo se odeslat soubory.");
