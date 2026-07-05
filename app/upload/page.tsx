@@ -3,8 +3,20 @@
 import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 
-const MAX_FILE_SIZE_MB = 4;
+const CLOUDINARY_CLOUD_NAME = "bpmzkfun";
+const CLOUDINARY_UPLOAD_PRESET = "svatebni_fotky_unsigned";
+
+const MAX_FILE_SIZE_MB = 250;
 const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
+
+type CloudinaryResponse = {
+  secure_url?: string;
+  public_id?: string;
+  resource_type?: string;
+  error?: {
+    message?: string;
+  };
+};
 
 export default function UploadPage() {
   const [files, setFiles] = useState<File[]>([]);
@@ -39,6 +51,60 @@ export default function UploadPage() {
     return (total / 1024 / 1024).toFixed(1);
   }, [files]);
 
+  function uploadFileDirectlyToCloudinary(
+    file: File,
+    onProgress: (percent: number) => void
+  ) {
+    return new Promise<CloudinaryResponse>((resolve, reject) => {
+      const resourceType = file.type.startsWith("video") ? "video" : "image";
+
+      const url = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/${resourceType}/upload`;
+
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
+
+      const xhr = new XMLHttpRequest();
+
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) {
+          const percent = Math.round((event.loaded / event.total) * 100);
+          onProgress(percent);
+        }
+      };
+
+      xhr.onload = () => {
+        let data: CloudinaryResponse;
+
+        try {
+          data = JSON.parse(xhr.responseText);
+        } catch {
+          reject(new Error("Cloudinary nevrátilo platnou odpověď."));
+          return;
+        }
+
+        if (xhr.status < 200 || xhr.status >= 300) {
+          reject(
+            new Error(
+              data.error?.message ||
+                "Nahrávání se nepovedlo. Zkontrolujte upload preset."
+            )
+          );
+          return;
+        }
+
+        resolve(data);
+      };
+
+      xhr.onerror = () => {
+        reject(new Error("Nepodařilo se připojit ke Cloudinary."));
+      };
+
+      xhr.open("POST", url);
+      xhr.send(formData);
+    });
+  }
+
   async function handleUpload() {
     if (files.length === 0 || isUploading) return;
 
@@ -50,27 +116,13 @@ export default function UploadPage() {
       let uploaded = 0;
 
       for (let i = 0; i < files.length; i++) {
-        const formData = new FormData();
-        formData.append("files", files[i]);
+        await uploadFileDirectlyToCloudinary(files[i], (fileProgress) => {
+          const totalProgress = Math.round(
+            ((uploaded + fileProgress / 100) / files.length) * 100
+          );
 
-        const response = await fetch("/api/upload", {
-          method: "POST",
-          body: formData,
+          setUploadProgress(totalProgress);
         });
-
-        const text = await response.text();
-
-        let data;
-        try {
-          data = JSON.parse(text);
-        } catch {
-          console.log("SERVER RESPONSE:", text);
-          throw new Error("Server nevrátil platnou odpověď.");
-        }
-
-        if (!response.ok) {
-          throw new Error(data.error || "Nahrávání selhalo.");
-        }
 
         uploaded++;
         setUploadProgress(Math.round((uploaded / files.length) * 100));
@@ -132,13 +184,14 @@ export default function UploadPage() {
             </p>
 
             <p className="mb-8 text-sm leading-7 text-[#52616f]">
-              Budeme se těšit na všechny vzpomínky, které s námi sdílíte.
+              Budeme se těšit na všechny vzpomínky, které díky vám znovu
+              prožijeme.
             </p>
 
             <div className="mb-8 text-2xl">🖤💙</div>
 
             <p className="mb-8 text-3xl text-[#10151c] [font-family:Allura,cursive]">
-              Zuz & František
+              Zuzana & František
             </p>
 
             <button
@@ -200,7 +253,7 @@ export default function UploadPage() {
               Vybrat soubory
             </span>
             <span className="mt-1 block text-sm text-[#52616f]">
-              fotky i kratší videa
+              fotky i videa
             </span>
 
             <input
