@@ -3,6 +3,9 @@
 import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 
+const MAX_FILE_SIZE_MB = 4;
+const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
+
 export default function UploadPage() {
   const [files, setFiles] = useState<File[]>([]);
   const [status, setStatus] = useState("");
@@ -25,69 +28,66 @@ export default function UploadPage() {
     }));
   }, [files]);
 
+  useEffect(() => {
+    return () => {
+      previews.forEach((preview) => URL.revokeObjectURL(preview.url));
+    };
+  }, [previews]);
+
   const totalSizeMb = useMemo(() => {
     const total = files.reduce((sum, file) => sum + file.size, 0);
     return (total / 1024 / 1024).toFixed(1);
   }, [files]);
 
   async function handleUpload() {
-  if (files.length === 0 || isUploading) return;
+    if (files.length === 0 || isUploading) return;
 
-  setIsUploading(true);
-  setStatus("");
-  setUploadProgress(0);
-
-  try {
-    let uploaded = 0;
-
-    for (let i = 0; i < files.length; i++) {
-      const formData = new FormData();
-      formData.append("files", files[i]);
-
-      const response = await fetch("/api/upload", {
-        method: "POST",
-        body: formData,
-      });
-
-      const text = await response.text();
-
-      let data;
-      try {
-        data = JSON.parse(text);
-      } catch {
-        console.log("SERVER RESPONSE:", text);
-        throw new Error("Server nevrátil platnou odpověď.");
-      }
-
-      if (!response.ok) {
-        throw new Error(data.error || "Nahrávání selhalo.");
-      }
-
-      uploaded++;
-      setUploadProgress(Math.round((uploaded / files.length) * 100));
-    }
-
-    setFiles([]);
+    setIsUploading(true);
     setStatus("");
-    setIsSuccess(true);
-  } catch (error) {
-    setStatus(
-      error instanceof Error
-        ? `Chyba: ${error.message}`
-        : "Něco se nepovedlo."
-    );
-  } finally {
-    setIsUploading(false);
-  }
-}
+    setUploadProgress(0);
 
-    xhr.onerror = () => {
-      setStatus("Chyba: Nepodařilo se odeslat soubory.");
+    try {
+      let uploaded = 0;
+
+      for (let i = 0; i < files.length; i++) {
+        const formData = new FormData();
+        formData.append("files", files[i]);
+
+        const response = await fetch("/api/upload", {
+          method: "POST",
+          body: formData,
+        });
+
+        const text = await response.text();
+
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch {
+          console.log("SERVER RESPONSE:", text);
+          throw new Error("Server nevrátil platnou odpověď.");
+        }
+
+        if (!response.ok) {
+          throw new Error(data.error || "Nahrávání selhalo.");
+        }
+
+        uploaded++;
+        setUploadProgress(Math.round((uploaded / files.length) * 100));
+      }
+
+      setFiles([]);
+      setStatus("");
+      setIsSuccess(true);
+    } catch (error) {
+      setStatus(
+        error instanceof Error
+          ? `Chyba: ${error.message}`
+          : "Něco se nepovedlo."
+      );
+    } finally {
       setIsUploading(false);
-    };
-
-    xhr.open("POST", "/api/upload");
-    xhr.send(formData);
+    }
   }
 
   function removeFile(indexToRemove: number) {
@@ -200,7 +200,7 @@ export default function UploadPage() {
               Vybrat soubory
             </span>
             <span className="mt-1 block text-sm text-[#52616f]">
-              fotky i videa
+              fotky i kratší videa
             </span>
 
             <input
@@ -210,9 +210,27 @@ export default function UploadPage() {
               className="hidden"
               onChange={(event) => {
                 const selected = Array.from(event.target.files ?? []);
-                setFiles(selected);
-                setStatus("");
+
+                const allowedFiles = selected.filter(
+                  (file) => file.size <= MAX_FILE_SIZE_BYTES
+                );
+
+                const rejectedFiles = selected.filter(
+                  (file) => file.size > MAX_FILE_SIZE_BYTES
+                );
+
+                setFiles((currentFiles) => [...currentFiles, ...allowedFiles]);
                 setUploadProgress(0);
+
+                if (rejectedFiles.length > 0) {
+                  setStatus(
+                    `Některé soubory jsou moc velké. Maximální velikost jednoho souboru je ${MAX_FILE_SIZE_MB} MB.`
+                  );
+                } else {
+                  setStatus("");
+                }
+
+                event.target.value = "";
               }}
             />
           </label>
